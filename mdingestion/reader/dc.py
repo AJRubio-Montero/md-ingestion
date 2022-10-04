@@ -59,9 +59,10 @@ class DublinCoreReader(XMLReader):
     def temporal_coverage(self):
         string_aux = None
         string_dict = {}
-        if self.parser.doc.find('coverage', attrs={'xsi:type': 'dcterms:Period'}) or 
-            self.parser.doc.find('temporal', attrs={'xsi:type': 'dcterms:Period'}):
-                string_aux = self.parser.doc.find('temporal', attrs={'xsi:type': 'dcterms:Period'})
+        if self.parser.doc.find('coverage', attrs={'xsi:type': 'dcterms:Period'}): 
+            string_aux = self.parser.doc.find('temporal', attrs={'xsi:type': 'dcterms:Period'}).text
+        if self.parser.doc.find('temporal', attrs={'xsi:type': 'dcterms:Period'}):
+            string_aux = self.parser.doc.find('temporal', attrs={'xsi:type': 'dcterms:Period'}).text
                 
         if string_aux:
             # https://www.dublincore.org/specifications/dublin-core/dcmi-period/
@@ -70,7 +71,7 @@ class DublinCoreReader(XMLReader):
             if string_aux.find('start'): 
                 string_dict = self._dc_item_to_dict(string_aux)
             elif not string_aux.find('='):
-                # ajrm: if DC non-normative, dangerous without keys
+                # DC non-normative, dangerous without keys
                 # <dcterms:temporal xsi:type="dcterms:Period">2000-01-26,2000-02-20</dcterms:temporal>
                 # <dcterms:temporal xsi:type="dcterms:Period">2000-01-26 2000-02-20</dcterms:temporal>
                 string_list= string_aux.string_aux.replace(',',' ').split()
@@ -101,31 +102,80 @@ class DublinCoreReader(XMLReader):
     def geometry(self):
         # ajrm: possible issue. As BeatifulSoup could be called as XML, 
         #       then tags and atributes are (Upper/Lowercase)-sensitive
-         
+        
+        geometry = None
+        is_point = False
+        is_dc_normative= False
+                
         if self.parser.doc.find('spatial', attrs={'xsi:type': 'dcterms:POINT'}):
+            # DC non-normative, dangerous without keys
             # <dcterms:spatial xsi:type="dcterms:POINT">9.811246,56.302585</dcterms:spatial>
-            point = self.parser.doc.find('spatial', attrs={'xsi:type': 'dcterms:POINT'}).text.split(',')
-            geometry = self._geometry_point(self, point)
-            
+            # <dcterms:spatial xsi:type="dcterms:POINT">9.811246 56.302585</dcterms:spatial>
+            string_aux = self.parser.doc.find('spatial', attrs={'xsi:type': 'dcterms:POINT'}).text
+            is_point = True
+            is_dc_normative= False
+
+        elif self.parser.doc.find('spatial', attrs={'xsi:type': 'dcterms:Point'}):
+            # Normative: https://www.dublincore.org/specifications/dublin-core/dcmi-terms/terms/Point/
+            # <dcterms:spatial xsi:type="dcterms:Point">east=-1.47; north=-78.82; elevation=5000;</dcterms:spatial>
+            string_aux = self.parser.doc.find('spatial', attrs={'xsi:type': 'dcterms:Point'}).text
+            is_point = True
+            is_dc_normative= True
+    
         elif self.parser.doc.find('coverage', attrs={'xsi:type': 'dcterms:Point'}):
+            # Normative: https://www.dublincore.org/specifications/dublin-core/dcmi-point/
             # <dc:coverage xsi:type="dcterms:Point">east=-1.47; north=-78.82; elevation=5000;</dc:coverage>
-            string_aux = self.parser.doc.find('spatial', attrs={'xsi:type': 'dcterms:Point'})
-            point_dict = self._dc_item_to_dict(string_aux)
-            point = (point_dict['north'],point_dict['east'])
-            geometry = self._geometry_point(self, point)
-            
+            string_aux = self.parser.doc.find('coverage', attrs={'xsi:type': 'dcterms:Point'}).text
+            is_point = True
+            is_dc_normative= True
+
         elif self.parser.doc.find('spatial', attrs={'xsi:type': 'DCTERMS:Box'}):
+            # DC non-normative, dangerous without keys
             # <dcterms:spatial xsi:type="DCTERMS:Box">37.2888 -32.27982 37.30134 -32.275618</dcterms:spatial>
-            bbox = self.parser.doc.find('spatial', attrs={'xsi:type': 'DCTERMS:Box'}).text.split()
-            geometry = self._geometry_bbox(self, bbox)
+            string_aux = self.parser.doc.find('spatial', attrs={'xsi:type': 'DCTERMS:Box'}).text
+            is_point = False
+            is_dc_normative= False
             
-        elif self.parser.doc.find('coverage', attrs={''}):
-           coverage = self.parser.doc.find('coverage', attrs={''})
-           if  coverage. XXXXX
-           # <dc:coverage>North 37.30134, South 37.2888, East -32.275618, West -32.27982</dc:coverage>
-           bbox = self.parser.doc.find('spatial', attrs={'xsi:type': 'DCTERMS:Box'}).text.split() XXXXX
-           geometry = self._geometry_bbox(self, bbox)
- 
+        elif self.parser.doc.find('spatial', attrs={'xsi:type': 'dcterms:Box'}):
+            # Normative: https://www.dublincore.org/specifications/dublin-core/dcmi-box/
+            # <dcterms:spatial xsi:type="dcterms:Box">northlimit=-21.3; southlimit=-21.4; westlimit=139.8; eastlimit=139.9; 
+            #                            uplimit=400; downlimit=-100; name=Duchess copper mine</dcterms:spatial>
+            string_aux = self.parser.doc.find('spatial', attrs={'xsi:type': 'dcterms:Box'}).text
+            is_point = False
+            is_dc_normative= True
+            
+        elif self.parser.doc.find('coverage', attrs={'xsi:type': 'dcterms:Box'}):
+            # Normative: https://www.dublincore.org/specifications/dublin-core/dcmi-box/
+            # <dc:coverage xsi:type="dcterms:Box">northlimit=-21.3; southlimit=-21.4; westlimit=139.8; eastlimit=139.9; 
+            #                            uplimit=400; downlimit=-100; name=Duchess copper mine</dc:coverage>
+            string_aux = self.parser.doc.find('coverage', attrs={'xsi:type': 'dcterms:Box'}).text
+            is_point = False
+            is_dc_normative= True
+        
+        # not: not addressed yet
+        #elif self.parser.doc.find('coverage', attrs={''}):
+        #   coverage = self.parser.doc.find('coverage', attrs={''})
+        #   if  coverage. ....
+        #   # <dc:coverage>North 37.30134, South 37.2888, East -32.275618, West -32.27982</dc:coverage>
+        #   bbox = self.parser.doc.find('spatial', attrs={'xsi:type': 'DCTERMS:Box'}).text....
+        #   geometry = self._geometry_bbox(self, bbox)
+        
+
+        if is_point:
+            if is_dc_normative:
+                point_dict = self._dc_item_to_dict(string_aux)
+                point = [point_dict['north'],point_dict['east']]
+            else:
+                point = string_aux.replace(' ',',').text.split(',')
+                
+            geometry = self._geometry_point(self, point)
         else:
-            geometry = None
+            if is_dc_normative:
+                bbox_dict = self._dc_item_to_dict(string_aux)
+                bbox = (bbox_dict['southlimit'], bbox_dict['eastlimit'], bbox_dict['northlimit'],bbox_dict['westlimit'])
+            else:
+                bbox = string_aux.replace(' ',',').text.split(',')
+            geometry = self._geometry_bbox(self, bbox)
+
+            
         return geometry
