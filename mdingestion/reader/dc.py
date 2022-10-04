@@ -27,8 +27,11 @@ class DublinCoreReader(XMLReader):
         doc.language = self.find('language')
         doc.resource_type = self.find('type')
         doc.format = self.find('format')
-        # doc.temporal_coverage_begin = ''
-        # doc.temporal_coverage_end = ''
+        temporal = self.temporal_coverage()
+        if 'start' in temporal.keys(): 
+            doc.temporal_coverage_end = string_aux['start']       
+        if 'end' in temporal.keys(): 
+            doc.temporal_coverage_end = string_aux['end']
         doc.geometry = self.find_geometry()
         doc.places = self.places()
         doc.size = self.find('extent')
@@ -44,9 +47,40 @@ class DublinCoreReader(XMLReader):
         return funding_refs
 
     def places(self):
+        # ajrm comment: It is very optimistic find always a place in <dc:coverage> ... </dc:coverage>
         places = [s.text.strip() for s in self.parser.doc.find_all('spatial') if not s.attrs]
         return places
 
+    def _dc_item_to_dict(self, string_aux):
+        string_list = string_aux.replace('; ',',').replace(';',',').replace('=',',').split(',')
+        string_dict = {string_list[i]: string_list[i + 1] for i in range(0, len(string_list)-1, 2)}
+        return string_dict
+    
+    def temporal_coverage(self):
+        string_aux = None
+        string_dict = {}
+        if self.parser.doc.find('coverage', attrs={'xsi:type': 'dcterms:Period'}) or 
+            self.parser.doc.find('temporal', attrs={'xsi:type': 'dcterms:Period'}):
+                string_aux = self.parser.doc.find('temporal', attrs={'xsi:type': 'dcterms:Period'})
+                
+        if string_aux:
+            # https://www.dublincore.org/specifications/dublin-core/dcmi-period/
+            # <dc:coverage xsi:type="dcterms:Period">name=Perth International Arts Festival, 2000; start=2000-01-26; end=2000-02-20; scheme=W3C-DTF;</dc:coverage>
+            # <dcterms:temporal xsi:type="dcterms:Period">name=Perth International Arts Festival, 2000; start=2000-01-26; end=2000-02-20; scheme=W3C-DTF;</dcterms:temporal>
+            if string_aux.find('start'): 
+                string_dict = self._dc_item_to_dict(string_aux)
+            elif not string_aux.find('='):
+                # ajrm: if DC non-normative, dangerous without keys
+                # <dcterms:temporal xsi:type="dcterms:Period">2000-01-26,2000-02-20</dcterms:temporal>
+                # <dcterms:temporal xsi:type="dcterms:Period">2000-01-26 2000-02-20</dcterms:temporal>
+                string_list= string_aux.string_aux.replace(',',' ').split()
+                string_dict['start'] = string_list[0]
+                if len(string_list) > 1 : 
+                    string_dict['end'] = string_list[1]
+                    
+         return string_dict 
+    
+    
     def _geometry_point(self, point):
         lon = float(point[0])
         lon = convert_to_lon_180(lon)
@@ -76,8 +110,7 @@ class DublinCoreReader(XMLReader):
         elif self.parser.doc.find('coverage', attrs={'xsi:type': 'dcterms:Point'}):
             # <dc:coverage xsi:type="dcterms:Point">east=-1.47; north=-78.82; elevation=5000;</dc:coverage>
             string_aux = self.parser.doc.find('spatial', attrs={'xsi:type': 'dcterms:Point'})
-            string_list = string_aux.replace(' ','').replace(';',',').replace('=',',').split(',')
-            string_dict = {string_list[i]: string_list[i + 1] for i in range(0, len(string_list)-1, 2)}
+            point_dict = self._dc_item_to_dict(string_aux)
             point = (point_dict['north'],point_dict['east'])
             geometry = self._geometry_point(self, point)
             
